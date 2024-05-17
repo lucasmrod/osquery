@@ -8,6 +8,7 @@
  */
 
 #include <pwd.h>
+#include <errno.h>
 
 #include <osquery/core/core.h>
 #include <osquery/core/tables.h>
@@ -75,15 +76,30 @@ QueryData genUsersImpl(QueryContext& context, Logger& logger) {
       }
     }
   } else {
-    setpwent();
+    FILE *passwd_file;
+    struct passwd pwd;
+    struct passwd *result;
+    char buffer[1024];
+    int ret;
+    passwd_file = fopen("/etc/passwd", "r");
+    if (passwd_file == nullptr) {
+      LOG(ERROR) << "could not open /etc/passwd file: " << std::strerror(errno);
+      return results;
+    }
+
     while (1) {
-      getpwent_r(&pwd, buf.get(), bufsize, &pwd_results);
-      if (pwd_results == nullptr) {
+      ret = fgetpwent_r(passwd_file, &pwd, buffer, sizeof(buffer), &result);
+      if (ret != 0 || result == nullptr) {
         break;
       }
-      genUser(pwd_results, results);
+      genUser(result, results);
     }
-    endpwent();
+
+    if (ret != 0 && ret != ENOENT) {
+      LOG(ERROR) << "failed to iterate /etc/passwd file: " << std::strerror(errno);
+    }
+
+    fclose(passwd_file);
   }
 
   return results;
